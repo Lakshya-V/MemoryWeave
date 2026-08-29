@@ -1,6 +1,39 @@
-venv/
-.env
-__pycache__/
-*.pyc
-.DS_Store
+# Flutter/Dart build outputs and dependencies
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+
+# Android build outputs and IDE files
+android/.gradle/
+android/app/debug/
+android/app/profile/
+android/app/release/
+android/app/build/
+.gradle/
+*.iml
+*.ipr
+*.iws
+
+# iOS / macOS build outputs
+ios/Runner.xcworkspace/
+ios/Pods/
+ios/.symlinks/
+*.mode1v3
+*.mode2v3
+*.moved-aside
+*.pbxuser
+*.perspectivev3
+
+# Editor / IDE configuration
+.idea/
 .vscode/
+*.swp
+
+# Environment secrets and OS files
+.env
+.DS_Store
+Thumbs.db

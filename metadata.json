@@ -1,0 +1,7 @@
+{
+  "name": "MemoryWeave",
+  "description": "Personal memory companion and caregiver portal for cognitive recall, quizzes, and memory management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
