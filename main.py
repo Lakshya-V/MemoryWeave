@@ -2,17 +2,23 @@ import os
 import json
 import uuid
 from typing import List
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from openai import OpenAI
 from dotenv import load_dotenv
+from sqlalchemy.orm import Session
+
+from database import engine, Base, get_db
+import models
 
 load_dotenv()
 
+# Initialize PostgreSQL tables
+Base.metadata.create_all(bind=engine)
+
 app = FastAPI(title="MemoryWeave Backend Engine")
 
-# Enable CORS for Flutter app and web clients
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,29 +27,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize Reka AI client via OpenAI-compatible endpoint with explicit timeout
 REKA_API_KEY = os.getenv("REKA_API_KEY", "your_reka_api_key_here")
 reka_client = OpenAI(
     base_url="https://api.reka.ai/v1",
     api_key=REKA_API_KEY,
     timeout=60.0
 )
-
-# Shared In-Memory Storage
-MEMORIES_DB = [
-    {
-        "memory_id": "mem_001",
-        "image_url": "https://images.unsplash.com/photo-1507525428034-b723cf961d3e",
-        "qa_pairs": [
-            {"question": "Who is with you in this photo?", "answer": "Sunita and Rohan"},
-            {"question": "Where was this vacation taken?", "answer": "Goa Beach"},
-            {"question": "What year was this taken?", "answer": "1995"}
-        ],
-        "ground_truth": "Who is with you in this photo?: Sunita and Rohan | Where was this vacation taken?: Goa Beach | What year was this taken?: 1995"
-    }
-]
-
-current_index = 0
 
 # --- Pydantic Data Schemas ---
 
@@ -69,7 +58,7 @@ class EvaluationRequest(BaseModel):
 async def root():
     return {"status": "online", "system": "MemoryWeave Core Engine"}
 
-# 1. Caregiver Step A: Reka inspects photo and generates 3 questions for caregiver
+# 1. Caregiver Step A: Reka inspects photo and generates 3 questions
 @app.post("/caregiver/generate-questions")
 async def generate_caregiver_questions(req: CaregiverQuestionsRequest):
     try:
@@ -108,53 +97,57 @@ async def generate_caregiver_questions(req: CaregiverQuestionsRequest):
 
     return {"image_url": req.image_url, "questions": questions}
 
-# 2. Caregiver Step B: Save caregiver answers and form ground truth
+# 2. Caregiver Step B: Save caregiver answers into PostgreSQL
 @app.post("/caregiver/save-memory")
-async def save_memory(req: SaveMemoryRequest):
+async def save_memory(req: SaveMemoryRequest, db: Session = Depends(get_db)):
     ground_truth_parts = [f"{pair.question}: {pair.answer}" for pair in req.qa_pairs]
     ground_truth_summary = " | ".join(ground_truth_parts)
 
-    new_memory = {
-        "memory_id": f"mem_{uuid.uuid4().hex[:6]}",
-        "image_url": req.image_url,
-        "qa_pairs": [pair.dict() for pair in req.qa_pairs],
-        "ground_truth": ground_truth_summary
-    }
+    new_memory = models.Memory(
+        memory_id=f"mem_{uuid.uuid4().hex[:6]}",
+        image_url=req.image_url,
+        qa_pairs=[pair.dict() for pair in req.qa_pairs],
+        ground_truth=ground_truth_summary
+    )
 
-    MEMORIES_DB.append(new_memory)
-    return {"status": "success", "memory_id": new_memory["memory_id"], "total_memories": len(MEMORIES_DB)}
+    db.add(new_memory)
+    db.commit()
+    db.refresh(new_memory)
 
-# 3. Elder Game: Serve next photo and a recall question
+    total_memories = db.query(models.Memory).count()
+    return {"status": "success", "memory_id": new_memory.memory_id, "total_memories": total_memories}
+
+# 3. Elder Game: Serve next photo from PostgreSQL database
 @app.get("/activity/next")
-async def get_next_activity():
-    global current_index
+async def get_next_activity(db: Session = Depends(get_db)):
+    memory = db.query(models.Memory).first()
     
-    if not MEMORIES_DB:
-        raise HTTPException(status_code=404, detail="No memories available.")
+    if not memory:
+        raise HTTPException(status_code=404, detail="No memories available in database.")
 
-    memory = MEMORIES_DB[current_index % len(MEMORIES_DB)]
-    current_index += 1
-
-    selected_qa = memory["qa_pairs"][0] if memory["qa_pairs"] else {
+    selected_qa = memory.qa_pairs[0] if memory.qa_pairs else {
         "question": "Do you remember who was with you in this photo?",
         "answer": "Family"
     }
 
     return {
-        "memory_id": memory["memory_id"],
-        "image_url": memory["image_url"],
+        "memory_id": memory.memory_id,
+        "image_url": memory.image_url,
         "question_text": selected_qa["question"],
-        "ground_truth": memory["ground_truth"]
+        "ground_truth": memory.ground_truth
     }
 
-# 4. Elder Game: Flexible evaluation using entire memory context
+# 4. Elder Game: Reka evaluates spoken answer against PostgreSQL ground truth
 @app.post("/activity/evaluate")
-async def evaluate_answer(req: EvaluationRequest):
-    memory = next((m for m in MEMORIES_DB if m["memory_id"] == req.memory_id), MEMORIES_DB[0])
+async def evaluate_answer(req: EvaluationRequest, db: Session = Depends(get_db)):
+    memory = db.query(models.Memory).filter(models.Memory.memory_id == req.memory_id).first()
+
+    if not memory:
+        raise HTTPException(status_code=404, detail="Memory record not found.")
 
     prompt = f"""
     Full Ground Truth Facts for this Photo:
-    "{memory['ground_truth']}"
+    "{memory.ground_truth}"
 
     Elder's Response: "{req.transcribed_text}"
 

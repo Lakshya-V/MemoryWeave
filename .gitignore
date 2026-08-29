@@ -4,3 +4,6 @@ __pycache__/
 *.pyc
 .DS_Store
 .vscode/
+ml/training/
+*.csv
+!ml/memoryweave_training_baselines.csv  do i also put this in gitignore

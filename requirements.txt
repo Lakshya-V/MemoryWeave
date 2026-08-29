@@ -3,3 +3,10 @@ uvicorn
 openai
 python-dotenv
 pydantic
+sqlalchemy
+psycopg2-binary
+numpy 
+pandas
+scikit-learn
+joblib
+os
