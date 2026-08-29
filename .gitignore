@@ -6,4 +6,4 @@ __pycache__/
 .vscode/
 ml/training/
 *.csv
-!ml/memoryweave_training_baselines.csv  do i also put this in gitignore
+!ml/memoryweave_training_baselines.csv

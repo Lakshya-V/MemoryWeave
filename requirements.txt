@@ -5,8 +5,7 @@ python-dotenv
 pydantic
 sqlalchemy
 psycopg2-binary
-numpy 
+numpy
 pandas
 scikit-learn
 joblib
-os

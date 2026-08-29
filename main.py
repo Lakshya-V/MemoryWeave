@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from openai import OpenAI
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
+from ml.anomaly import detect_drift
 
 from database import engine, Base, get_db
 import models
@@ -137,7 +138,7 @@ async def get_next_activity(db: Session = Depends(get_db)):
         "ground_truth": memory.ground_truth
     }
 
-# 4. Elder Game: Reka evaluates spoken answer against PostgreSQL ground truth
+# 4. Elder Game: Reka evaluates spoken answer against PostgreSQL ground truth & checks ML anomaly
 @app.post("/activity/evaluate")
 async def evaluate_answer(req: EvaluationRequest, db: Session = Depends(get_db)):
     memory = db.query(models.Memory).filter(models.Memory.memory_id == req.memory_id).first()
@@ -162,6 +163,7 @@ async def evaluate_answer(req: EvaluationRequest, db: Session = Depends(get_db))
     - "feedback": 1 short, encouraging sentence (5-8 words) for an elderly person.
     """
 
+    # Step 1: Reka evaluates transcription and outputs score + feedback
     try:
         response = reka_client.chat.completions.create(
             model="reka-edge",
@@ -181,6 +183,19 @@ async def evaluate_answer(req: EvaluationRequest, db: Session = Depends(get_db))
         match_type = "partial_context" if score >= 60 else "incorrect"
         feedback = "Thank you for sharing that with me!"
 
+    # Step 2: Feed Reka's score and latency into Person 3's ML anomaly detector
+    try:
+        drift_result = detect_drift(
+            user_id="user_default",  # Pass active elder ID or fallback ID string
+            latency_ms=float(req.latency_ms),
+            accuracy_score=float(score)
+        )
+        is_anomaly = drift_result.get("anomaly_flagged", False)
+    except Exception as e:
+        print(f"ML ANOMALY ERROR: {e}")
+        is_anomaly = False
+
+    # Step 3: Return integrated results to Flutter app
     return {
         "memory_id": req.memory_id,
         "accuracy_score": score,
@@ -188,5 +203,5 @@ async def evaluate_answer(req: EvaluationRequest, db: Session = Depends(get_db))
         "is_correct": score >= 60,
         "latency_ms": req.latency_ms,
         "feedback_text": feedback,
-        "anomaly_flagged": False
+        "anomaly_flagged": is_anomaly
     }
