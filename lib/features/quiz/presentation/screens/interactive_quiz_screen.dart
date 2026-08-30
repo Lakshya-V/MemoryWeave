@@ -4,6 +4,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/widgets/custom_app_bar.dart';
+import '../../data/models/services/quiz_service.dart';
 import '../widgets/speech_bubble.dart';
 import '../widgets/voice_record_button.dart';
 import '../widgets/quiz_completion_dialog.dart';
@@ -16,61 +17,141 @@ class InteractiveQuizScreen extends StatefulWidget {
 }
 
 class _InteractiveQuizScreenState extends State<InteractiveQuizScreen> {
-  int _currentQuestionIndex = 2; // Question 2 of 5
-  final int _totalQuestions = 5;
+  bool _isLoading = true;
+  bool _isEvaluating = false;
   bool _isRecording = false;
+
+  String? _activeMemoryId;
+  String? _imageUrl;
+  String _questionText = "Loading today's memory question...";
   String _statusText = AppStrings.tapToSpeak;
+
+  final Stopwatch _stopwatch = Stopwatch();
   Timer? _recordingTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchNextQuestion();
+  }
 
   @override
   void dispose() {
     _recordingTimer?.cancel();
+    _stopwatch.stop();
     super.dispose();
   }
 
+  Future<void> _fetchNextQuestion() async {
+    setState(() {
+      _isLoading = true;
+      _statusText = AppStrings.tapToSpeak;
+    });
+
+    final data = await QuizService.fetchNextQuiz();
+
+    if (!mounted) return;
+
+    if (data != null) {
+      setState(() {
+        _activeMemoryId = data['memory_id']?.toString() ?? 'mem_a1b2c3';
+        _imageUrl = data['image_url'];
+        _questionText = data['question_text'] ?? AppStrings.sampleQuestion;
+        _isLoading = false;
+      });
+
+      // Start timing as soon as the question is rendered
+      _stopwatch.reset();
+      _stopwatch.start();
+    } else {
+      // Fallback state if database has no active memories
+      setState(() {
+        _activeMemoryId = 'mem_a1b2c3';
+        _questionText = AppStrings.sampleQuestion;
+        _isLoading = false;
+      });
+      _stopwatch.reset();
+      _stopwatch.start();
+    }
+  }
+
   void _handleMicTap() {
+    if (_isLoading || _isEvaluating) return;
+
     if (!_isRecording) {
-      // Start recording simulation
       setState(() {
         _isRecording = true;
         _statusText = AppStrings.listening;
       });
 
-      _recordingTimer = Timer(const Duration(seconds: 3), () {
+      _recordingTimer = Timer(const Duration(seconds: 4), () {
         if (mounted && _isRecording) {
-          _finishRecording();
+          _finishRecordingAndSubmit();
         }
       });
     } else {
-      _finishRecording();
+      _finishRecordingAndSubmit();
     }
   }
 
-  void _finishRecording() {
+  Future<void> _finishRecordingAndSubmit() async {
     _recordingTimer?.cancel();
+    _stopwatch.stop();
+
+    final latencyMs = _stopwatch.elapsedMilliseconds;
+
     setState(() {
       _isRecording = false;
+      _isEvaluating = true;
       _statusText = AppStrings.processing;
     });
 
-    Future.delayed(const Duration(milliseconds: 1200), () {
-      if (mounted) {
-        setState(() {
-          _statusText = 'Answer recorded!';
-        });
-        _showCompletionDialog();
-      }
+    // Simulated speech transcription (Plug speech_to_text package transcript string here)
+    const simulatedTranscript = "That is my daughter Sarah at the beach";
+
+    final response = await QuizService.submitEvaluation(
+      memoryId: _activeMemoryId ?? 'mem_a1b2c3',
+      transcribedText: simulatedTranscript,
+      latencyMs: latencyMs,
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _isEvaluating = false;
+      _statusText = 'Answer recorded!';
     });
+
+    final accuracyScore = response?['accuracy_score'] ?? 85;
+    final feedback = response?['feedback_text'] ?? "Wonderful! That was indeed your daughter Sarah.";
+    final anomalyFlagged = response?['anomaly_flagged'] ?? false;
+
+    _showCompletionDialog(
+      score: accuracyScore,
+      feedback: feedback,
+      anomalyFlagged: anomalyFlagged,
+    );
   }
 
-  void _showCompletionDialog() {
+  void _showCompletionDialog({
+    required int score,
+    required String feedback,
+    required bool anomalyFlagged,
+  }) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => QuizCompletionDialog(
+        score: score,
+        feedback: feedback,
+        anomalyFlagged: anomalyFlagged,
+        onNext: () {
+          Navigator.of(context).pop();
+          _fetchNextQuestion();
+        },
         onReturnHome: () {
-          Navigator.of(context).pop(); // dismiss dialog
-          Navigator.of(context).pop(); // return home
+          Navigator.of(context).pop();
+          Navigator.of(context).pop();
         },
       ),
     );
@@ -78,8 +159,6 @@ class _InteractiveQuizScreenState extends State<InteractiveQuizScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final progress = _currentQuestionIndex / _totalQuestions;
-
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: CustomAppBar(
@@ -93,93 +172,87 @@ class _InteractiveQuizScreenState extends State<InteractiveQuizScreen> {
         ],
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppDimensions.containerMargin,
-            vertical: 16.0,
-          ),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 600.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                // Question progress bar
-                Text(
-                  'Question $_currentQuestionIndex of $_totalQuestions',
-                  style: const TextStyle(
-                    fontFamily: 'Atkinson Hyperlegible Next',
-                    fontSize: 22.0,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.onSurface,
-                  ),
+        child: _isLoading
+            ? const Center(
+                child: CircularProgressIndicator(color: AppColors.primary),
+              )
+            : SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppDimensions.containerMargin,
+                  vertical: 16.0,
                 ),
-                const SizedBox(height: 10.0),
-                Container(
-                  height: 16.0,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(10.0),
-                    border: Border.all(color: AppColors.borderBlack, width: AppDimensions.borderWidth),
-                  ),
-                  child: FractionallySizedBox(
-                    alignment: Alignment.centerLeft,
-                    widthFactor: progress,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        borderRadius: BorderRadius.circular(8.0),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 600.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      const Text(
+                        'Memory Activity',
+                        style: TextStyle(
+                          fontFamily: 'Atkinson Hyperlegible Next',
+                          fontSize: 22.0,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.onSurface,
+                        ),
                       ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppDimensions.stackGap),
+                      const SizedBox(height: AppDimensions.stackGap),
 
-                // Image Container with 4px black border
-                Container(
-                  width: double.infinity,
-                  height: 240.0,
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceContainerHighest,
-                    borderRadius: AppDimensions.roundedLarge,
-                    border: Border.all(color: AppColors.borderBlack, width: 4.0),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8.0),
-                    child: CustomPaint(
-                      painter: _VintageWeddingPhotoPainter(),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12.0),
+                      // Memory Image Frame
+                      Container(
+                        width: double.infinity,
+                        height: 240.0,
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceContainerHighest,
+                          borderRadius: AppDimensions.roundedLarge,
+                          border: Border.all(
+                            color: AppColors.borderBlack,
+                            width: 4.0,
+                          ),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8.0),
+                          child: _imageUrl != null && _imageUrl!.startsWith('http')
+                              ? Image.network(
+                                  _imageUrl!,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (ctx, err, stack) => CustomPaint(
+                                    painter: _VintageWeddingPhotoPainter(),
+                                  ),
+                                )
+                              : CustomPaint(
+                                  painter: _VintageWeddingPhotoPainter(),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 12.0),
 
-                // Question Speech Bubble
-                const SpeechBubble(
-                  text: AppStrings.sampleQuestion,
-                ),
-                const SizedBox(height: 32.0),
+                      // Question Speech Bubble
+                      SpeechBubble(text: _questionText),
+                      const SizedBox(height: 32.0),
 
-                // Voice Record Control
-                VoiceRecordButton(
-                  isRecording: _isRecording,
-                  onTap: _handleMicTap,
-                ),
-                const SizedBox(height: 16.0),
-                Text(
-                  _statusText,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontFamily: 'Atkinson Hyperlegible Next',
-                    fontSize: 20.0,
-                    fontWeight: FontWeight.w700,
-                    color: _isRecording ? AppColors.error : AppColors.onSurfaceVariant,
+                      // Voice Recording Button
+                      VoiceRecordButton(
+                        isRecording: _isRecording,
+                        onTap: _handleMicTap,
+                      ),
+                      const SizedBox(height: 16.0),
+                      Text(
+                        _statusText,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontFamily: 'Atkinson Hyperlegible Next',
+                          fontSize: 20.0,
+                          fontWeight: FontWeight.w700,
+                          color: _isRecording
+                              ? AppColors.error
+                              : AppColors.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 24.0),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 24.0),
-              ],
-            ),
-          ),
-        ),
+              ),
       ),
     );
   }
@@ -188,7 +261,6 @@ class _InteractiveQuizScreenState extends State<InteractiveQuizScreen> {
 class _VintageWeddingPhotoPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    // Sepia/Greyscale background
     final bg = Paint()..color = const Color(0xFFE8E5DF);
     canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), bg);
 
@@ -196,11 +268,9 @@ class _VintageWeddingPhotoPainter extends CustomPainter {
     final mid = Paint()..color = const Color(0xFF7A7875);
     final white = Paint()..color = const Color(0xFFFDFCFA);
 
-    // Couple silhouette / retro wedding illustration
     final cx = size.width / 2;
     final cy = size.height * 0.52;
 
-    // Bride veil & dress
     final veil = Path()
       ..moveTo(cx - 50, cy - 30)
       ..quadraticBezierTo(cx - 70, cy + 40, cx - 60, cy + 90)
@@ -208,11 +278,9 @@ class _VintageWeddingPhotoPainter extends CustomPainter {
       ..close();
     canvas.drawPath(veil, white);
 
-    // Bride head & smile
     canvas.drawCircle(Offset(cx - 36, cy - 24), 22.0, Paint()..color = const Color(0xFFD3CECA));
-    canvas.drawCircle(Offset(cx - 36, cy - 30), 20.0, dark); // hair
+    canvas.drawCircle(Offset(cx - 36, cy - 30), 20.0, dark);
 
-    // Groom suit
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromCenter(center: Offset(cx + 36, cy + 32), width: 56, height: 80),
@@ -220,7 +288,6 @@ class _VintageWeddingPhotoPainter extends CustomPainter {
       ),
       dark,
     );
-    // Groom tie & shirt
     final shirtPath = Path()
       ..moveTo(cx + 30, cy - 8)
       ..lineTo(cx + 42, cy - 8)
@@ -228,11 +295,9 @@ class _VintageWeddingPhotoPainter extends CustomPainter {
       ..close();
     canvas.drawPath(shirtPath, white);
 
-    // Groom head
     canvas.drawCircle(Offset(cx + 36, cy - 24), 22.0, Paint()..color = const Color(0xFFD3CECA));
-    canvas.drawCircle(Offset(cx + 36, cy - 30), 20.0, dark); // groom hair
+    canvas.drawCircle(Offset(cx + 36, cy - 30), 20.0, dark);
 
-    // Bouquet
     canvas.drawCircle(Offset(cx - 20, cy + 40), 16.0, white);
     canvas.drawCircle(Offset(cx - 16, cy + 36), 8.0, mid);
   }

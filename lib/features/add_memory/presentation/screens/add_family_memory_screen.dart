@@ -4,6 +4,7 @@ import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/widgets/accessible_button.dart';
 import '../../../../core/widgets/accessible_card.dart';
+import '../data/add_memory_service.dart';
 import '../widgets/photo_dropzone.dart';
 import '../../../questionnaire_preview/presentation/screens/questionnaire_preview_screen.dart';
 
@@ -17,18 +18,49 @@ class AddFamilyMemoryScreen extends StatefulWidget {
 class _AddFamilyMemoryScreenState extends State<AddFamilyMemoryScreen> {
   bool _isGenerating = false;
 
-  void _triggerGeneration() {
+  // Replace this with your actual uploaded image URL or dynamic controller input
+  final String _sampleImageUrl = "https://example.com/family-photo.jpg"; //[cite: 1]
+
+  Future<void> _triggerGeneration() async {
+    if (_isGenerating) return;
+
     setState(() => _isGenerating = true);
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
-        setState(() => _isGenerating = false);
+
+    try {
+      // 1. Call backend API to analyze image & get Reka AI questions[cite: 1]
+      final questions = await AddMemoryService.generateQuestions(_sampleImageUrl);
+
+      if (!mounted) return;
+
+      if (questions != null && questions.isNotEmpty) {
+        // 2. Navigate to Preview screen passing the fetched questions & image URL
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (context) => const QuestionnairePreviewScreen(),
+            builder: (context) => QuestionnairePreviewScreen(
+              imageUrl: _sampleImageUrl,
+              questions: questions,
+            ),
+          ),
+        );
+      } else {
+        // 3. Handle network error or empty response
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to generate questions. Check API link or try again.'),
+            backgroundColor: AppColors.primary,
           ),
         );
       }
-    });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isGenerating = false);
+      }
+    }
   }
 
   @override
@@ -84,8 +116,12 @@ class _AddFamilyMemoryScreenState extends State<AddFamilyMemoryScreen> {
                   child: Column(
                     children: [
                       PhotoDropzone(
-                        onTap: _triggerGeneration,
-                      ),
+  onTap: () {
+    if (!_isGenerating) {
+      _triggerGeneration();
+    }
+  },
+),
                       const SizedBox(height: AppDimensions.stackGap),
 
                       // Context section with spinner
@@ -116,10 +152,10 @@ class _AddFamilyMemoryScreenState extends State<AddFamilyMemoryScreen> {
                                 ),
                               ),
                             const SizedBox(height: 20.0),
-                            const Text(
-                              AppStrings.creatingQuestionnaire,
+                            Text(
+                              _isGenerating ? "Analyzing photo with AI..." : AppStrings.creatingQuestionnaire,
                               textAlign: TextAlign.center,
-                              style: TextStyle(
+                              style: const TextStyle(
                                 fontFamily: 'Atkinson Hyperlegible Next',
                                 fontSize: 26.0,
                                 fontWeight: FontWeight.w700,
@@ -156,8 +192,8 @@ class _AddFamilyMemoryScreenState extends State<AddFamilyMemoryScreen> {
                     ),
                     const SizedBox(height: 12.0),
                     AccessibleButton.primary(
-                      text: AppStrings.saveAndGenerate,
-                      onPressed: _triggerGeneration,
+                      text: _isGenerating ? "Generating..." : AppStrings.saveAndGenerate,
+                      onPressed: _isGenerating ? null : _triggerGeneration,
                     ),
                   ],
                 ),

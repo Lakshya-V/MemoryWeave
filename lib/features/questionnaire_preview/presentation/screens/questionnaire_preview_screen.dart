@@ -4,50 +4,158 @@ import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/widgets/accessible_button.dart';
 import '../../../../core/widgets/custom_app_bar.dart';
+import '../../../add_memory/presentation/data/add_memory_service.dart';
 import '../widgets/reference_memory_card.dart';
 import '../widgets/question_preview_tile.dart';
 import '../../data/models/generated_question.dart';
 
 class QuestionnairePreviewScreen extends StatefulWidget {
-  const QuestionnairePreviewScreen({super.key});
+  final String? imageUrl;
+  final List<String>? questions;
+
+  const QuestionnairePreviewScreen({
+    super.key,
+    this.imageUrl,
+    this.questions,
+  });
 
   @override
-  State<QuestionnairePreviewScreen> createState() => _QuestionnairePreviewScreenState();
+  State<QuestionnairePreviewScreen> createState() =>
+      _QuestionnairePreviewScreenState();
 }
 
 class _QuestionnairePreviewScreenState extends State<QuestionnairePreviewScreen> {
-  List<GeneratedQuestion> _questions = [
-    const GeneratedQuestion(id: 1, questionNumber: 1, text: 'Who is holding the red beach ball?'),
-    const GeneratedQuestion(id: 2, questionNumber: 2, text: 'What year was this photo taken?'),
-    const GeneratedQuestion(id: 3, questionNumber: 3, text: 'Where was the family vacationing?'),
-    const GeneratedQuestion(id: 4, questionNumber: 4, text: 'What color is the striped towel on the sand?'),
-  ];
+  List<GeneratedQuestion> _questions = [];
+  final Map<int, TextEditingController> _controllers = {};
+  bool _isSaving = false;
+  bool _isRegenerating = false;
 
-  void _handleApprove() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Questions approved and added to active quiz rotation!'),
-        backgroundColor: AppColors.secondary,
-      ),
-    );
-    Navigator.of(context).popUntil((route) => route.isFirst);
+  // DIRECT ACCESSIBLE TEST URL (Wikimedia link does not block Python requests)
+  final String _fallbackImage ="/Users/laptop/Downloads/family.jpg";
+  @override
+  void initState() {
+    super.initState();
+    _populateQuestions();
   }
 
-  void _handleRegenerate() {
-    setState(() {
-      _questions = [
-        const GeneratedQuestion(id: 1, questionNumber: 1, text: 'Who is smiling next to Eleanor on the shore?'),
-        const GeneratedQuestion(id: 2, questionNumber: 2, text: 'What season was this trip taken in?'),
-        const GeneratedQuestion(id: 3, questionNumber: 3, text: 'What game were you playing with the beach ball?'),
-        const GeneratedQuestion(id: 4, questionNumber: 4, text: 'Who booked the beachside cottage?'),
-      ];
-    });
+  void _populateQuestions() {
+    final rawList = (widget.questions != null && widget.questions!.isNotEmpty)
+        ? widget.questions!
+        : [
+            'Who are the people present in this photo?',
+            'Where was this photo taken?',
+            'What special memory or event is captured here?'
+          ];
+
+    _questions = rawList.asMap().entries.map((entry) {
+      final qId = entry.key + 1;
+      _controllers[qId] = TextEditingController();
+      return GeneratedQuestion(
+        id: qId,
+        questionNumber: qId,
+        text: entry.value,
+      );
+    }).toList();
+  }
+
+  @override
+  void dispose() {
+    for (var controller in _controllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _handleApprove() async {
+    if (_isSaving) return;
+
+    setState(() => _isSaving = true);
+
+    final targetUrl = (widget.imageUrl != null && widget.imageUrl!.startsWith('http'))
+        ? widget.imageUrl!
+        : _fallbackImage;
+
+    // Map UI questions & text controllers to the backend QA Pair structure
+    final qaPairs = _questions.map((q) {
+      final answerText = _controllers[q.id]?.text.trim();
+      return {
+        'question': q.text,
+        'answer': (answerText != null && answerText.isNotEmpty)
+            ? answerText
+            : 'Family memory reference',
+      };
+    }).toList();
+
+    final success = await AddMemoryService.saveMemory(
+      targetUrl,
+      qaPairs,
+    );
+
+    if (!mounted) return;
+
+    setState(() => _isSaving = false);
+
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Memory saved to database and added to quiz rotation!'),
+          backgroundColor: AppColors.secondary,
+        ),
+      );
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to save memory. Check terminal logs.'),
+          backgroundColor: AppColors.primary,
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleRegenerate() async {
+    if (_isRegenerating) return;
+
+    // Sanitize image URL to fallback if null or local path
+    final targetUrl = (widget.imageUrl != null && widget.imageUrl!.startsWith('http'))
+        ? widget.imageUrl!
+        : _fallbackImage;
+
+    setState(() => _isRegenerating = true);
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Questions regenerated using Reka AI ground truth.'),
+        content: Text('Regenerating questions with Reka AI...'),
         backgroundColor: AppColors.primaryContainer,
       ),
     );
+
+    final newQuestions = await AddMemoryService.generateQuestions(targetUrl);
+
+    if (!mounted) return;
+
+    setState(() => _isRegenerating = false);
+
+    if (newQuestions != null && newQuestions.isNotEmpty) {
+      setState(() {
+        _questions = newQuestions.asMap().entries.map((entry) {
+          final qId = entry.key + 1;
+          _controllers[qId] ??= TextEditingController();
+          return GeneratedQuestion(
+            id: qId,
+            questionNumber: qId,
+            text: entry.value,
+          );
+        }).toList();
+      });
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to regenerate questions. Try again or check backend logs.'),
+          backgroundColor: AppColors.primary,
+        ),
+      );
+    }
   }
 
   @override
@@ -83,18 +191,35 @@ class _QuestionnairePreviewScreenState extends State<QuestionnairePreviewScreen>
                       const SizedBox(height: 16.0),
                       const ReferenceMemoryCard(),
                       const SizedBox(height: AppDimensions.stackGap),
-
                       ..._questions.map(
                         (q) => Padding(
-                          padding: const EdgeInsets.only(bottom: 16.0),
-                          child: QuestionPreviewTile(
-                            question: q,
-                            onEdit: () {},
-                            onDelete: () {
-                              setState(() {
-                                _questions.removeWhere((item) => item.id == q.id);
-                              });
-                            },
+                          padding: const EdgeInsets.only(bottom: 20.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              QuestionPreviewTile(
+                                question: q,
+                                onEdit: () {},
+                                onDelete: () {
+                                  setState(() {
+                                    _questions.removeWhere((item) => item.id == q.id);
+                                    _controllers[q.id]?.dispose();
+                                    _controllers.remove(q.id);
+                                  });
+                                },
+                              ),
+                              const SizedBox(height: 8.0),
+                              TextField(
+                                controller: _controllers[q.id],
+                                decoration: InputDecoration(
+                                  labelText: 'Ground Truth Answer ${q.questionNumber}',
+                                  hintText: 'e.g., My daughter Sarah at Goa Beach',
+                                  filled: true,
+                                  fillColor: AppColors.surface,
+                                  border: const OutlineInputBorder(),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -104,14 +229,15 @@ class _QuestionnairePreviewScreenState extends State<QuestionnairePreviewScreen>
                 ),
               ),
             ),
-
-            // Bottom Actions
             Container(
               padding: const EdgeInsets.all(AppDimensions.containerMargin),
               decoration: const BoxDecoration(
                 color: AppColors.surface,
                 border: Border(
-                  top: BorderSide(color: AppColors.borderBlack, width: AppDimensions.borderWidth),
+                  top: BorderSide(
+                    color: AppColors.borderBlack,
+                    width: AppDimensions.borderWidth,
+                  ),
                 ),
               ),
               child: ConstrainedBox(
@@ -120,15 +246,15 @@ class _QuestionnairePreviewScreenState extends State<QuestionnairePreviewScreen>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     AccessibleButton.primary(
-                      text: AppStrings.approveAndAddToQuiz,
+                      text: _isSaving ? "Saving..." : AppStrings.approveAndAddToQuiz,
                       icon: Icons.check_circle,
-                      onPressed: _handleApprove,
+                      onPressed: (_isSaving || _isRegenerating) ? null : _handleApprove,
                     ),
                     const SizedBox(height: 12.0),
                     AccessibleButton.outlined(
-                      text: AppStrings.regenerateQuestions,
+                      text: _isRegenerating ? "Generating..." : AppStrings.regenerateQuestions,
                       icon: Icons.refresh,
-                      onPressed: _handleRegenerate,
+                      onPressed: (_isSaving || _isRegenerating) ? null : _handleRegenerate,
                     ),
                   ],
                 ),
