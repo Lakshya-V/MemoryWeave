@@ -30,8 +30,6 @@ class _QuestionnairePreviewScreenState extends State<QuestionnairePreviewScreen>
   bool _isSaving = false;
   bool _isRegenerating = false;
 
-  // DIRECT ACCESSIBLE TEST URL (Wikimedia link does not block Python requests)
-  final String _fallbackImage ="/Users/laptop/Downloads/family.jpg";
   @override
   void initState() {
     super.initState();
@@ -71,9 +69,14 @@ class _QuestionnairePreviewScreenState extends State<QuestionnairePreviewScreen>
 
     setState(() => _isSaving = true);
 
-    final targetUrl = (widget.imageUrl != null && widget.imageUrl!.startsWith('http'))
-        ? widget.imageUrl!
-        : _fallbackImage;
+    if (widget.imageUrl == null || widget.imageUrl!.isEmpty) {
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No photo attached to this memory.')),
+      );
+      return;
+    }
+    final targetUrl = widget.imageUrl!;
 
     // Map UI questions & text controllers to the backend QA Pair structure
     final qaPairs = _questions.map((q) {
@@ -116,10 +119,13 @@ class _QuestionnairePreviewScreenState extends State<QuestionnairePreviewScreen>
   Future<void> _handleRegenerate() async {
     if (_isRegenerating) return;
 
-    // Sanitize image URL to fallback if null or local path
-    final targetUrl = (widget.imageUrl != null && widget.imageUrl!.startsWith('http'))
-        ? widget.imageUrl!
-        : _fallbackImage;
+    if (widget.imageUrl == null || widget.imageUrl!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No photo attached to this memory.')),
+      );
+      return;
+    }
+    final targetUrl = widget.imageUrl!;
 
     setState(() => _isRegenerating = true);
 

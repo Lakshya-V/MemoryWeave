@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'core/constants/app_strings.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/elder_theme.dart';
 import 'features/auth/presentation/screens/login_screen.dart';
 import 'features/home/presentation/screens/patient_home_screen.dart';
 import 'features/quiz/presentation/screens/interactive_quiz_screen.dart';
@@ -12,6 +13,19 @@ import 'features/memory_details/presentation/screens/memory_details_screen.dart'
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const MemoryWeaveApp());
+}
+
+/// Wraps a screen with the elder-specific theme (bigger text, plainer
+/// white background) without touching the app's global theme, which
+/// caregiver screens continue to use as-is.
+class _ElderThemed extends StatelessWidget {
+  final Widget child;
+  const _ElderThemed({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Theme(data: ElderTheme.theme, child: child);
+  }
 }
 
 class MemoryWeaveApp extends StatelessWidget {
@@ -26,8 +40,10 @@ class MemoryWeaveApp extends StatelessWidget {
       home: const LoginScreen(),
       routes: {
         '/login': (context) => const LoginScreen(),
-        '/home': (context) => const PatientHomeScreen(),
-        '/quiz': (context) => const InteractiveQuizScreen(),
+        // Elder-facing screens: extra-large text, plain white background.
+        '/home': (context) => const _ElderThemed(child: PatientHomeScreen()),
+        '/quiz': (context) => const _ElderThemed(child: InteractiveQuizScreen()),
+        // Caregiver-facing screens: keep the standard accessible theme.
         '/caregiver': (context) => const CaregiverDashboardScreen(),
         '/add-memory': (context) => const AddFamilyMemoryScreen(),
         '/questionnaire-preview': (context) => const QuestionnairePreviewScreen(),

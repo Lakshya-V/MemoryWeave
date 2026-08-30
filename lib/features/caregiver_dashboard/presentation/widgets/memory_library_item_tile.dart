@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_dimensions.dart';
@@ -24,59 +26,78 @@ class MemoryLibraryItemTile extends StatelessWidget {
         );
       },
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Photo thumbnail
-          Container(
-            width: 80.0,
-            height: 80.0,
-            decoration: BoxDecoration(
-              color: AppColors.surfaceContainerHigh,
-              borderRadius: AppDimensions.roundedMedium,
-              border: Border.all(color: AppColors.borderBlack, width: AppDimensions.borderWidth),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(6.0),
-              child: CustomPaint(
-                painter: _MemoryThumbnailPainter(title: item.title),
+          // Real photo thumbnail (falls back to a placeholder icon if
+          // there's no image or it fails to load/decode).
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6.0),
+            child: Container(
+              width: 80.0,
+              height: 80.0,
+              decoration: BoxDecoration(
+                color: AppColors.surfaceContainerHigh,
+                border: Border.all(color: AppColors.borderBlack, width: AppDimensions.borderWidth),
               ),
+              child: _buildThumbnail(),
             ),
           ),
           const SizedBox(width: 16.0),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   item.title,
                   style: const TextStyle(
                     fontFamily: 'Atkinson Hyperlegible Next',
-                    fontSize: 20.0,
+                    fontSize: 18.0,
                     fontWeight: FontWeight.w700,
                     color: AppColors.onSurface,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 6.0),
                 Row(
                   children: [
-                    const Icon(Icons.event, size: 16.0, color: AppColors.onSurfaceVariant),
+                    const Icon(Icons.event, size: 15.0, color: AppColors.onSurfaceVariant),
                     const SizedBox(width: 4.0),
-                    Text(
-                      'Added: ${item.dateAdded}',
-                      style: const TextStyle(
-                        fontFamily: 'Atkinson Hyperlegible Next',
-                        fontSize: 15.0,
-                        color: AppColors.onSurfaceVariant,
+                    Flexible(
+                      child: Text(
+                        'Added: ${item.dateAdded}',
+                        style: const TextStyle(
+                          fontFamily: 'Atkinson Hyperlegible Next',
+                          fontSize: 14.0,
+                          color: AppColors.onSurfaceVariant,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
                 ),
+                if (item.timesPrompted > 0) ...[
+                  const SizedBox(height: 4.0),
+                  Text(
+                    'Prompted ${item.timesPrompted}x · ${item.avgRecallAccuracy}% avg recall',
+                    style: const TextStyle(
+                      fontFamily: 'Atkinson Hyperlegible Next',
+                      fontSize: 13.0,
+                      color: AppColors.onSurfaceVariant,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ],
             ),
           ),
-          const SizedBox(width: 8.0),
+          const SizedBox(width: 4.0),
           // Show context action
           IconButton(
-            icon: const Icon(Icons.info_outline, size: 28.0, color: AppColors.primary),
+            icon: const Icon(Icons.info_outline, size: 26.0, color: AppColors.primary),
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
@@ -90,37 +111,47 @@ class MemoryLibraryItemTile extends StatelessWidget {
       ),
     );
   }
-}
 
-class _MemoryThumbnailPainter extends CustomPainter {
-  final String title;
-
-  _MemoryThumbnailPainter({required this.title});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (title.contains('Goa')) {
-      // Beach scene
-      canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height * 0.6), Paint()..color = const Color(0xFF90CAF9));
-      canvas.drawRect(Rect.fromLTWH(0, size.height * 0.6, size.width, size.height * 0.4), Paint()..color = const Color(0xFFFFE082));
-      canvas.drawCircle(Offset(size.width * 0.5, size.height * 0.55), 8.0, Paint()..color = const Color(0xFFBA1A1A)); // red ball
-    } else if (title.contains('Buster')) {
-      // Yard dog scene
-      canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height * 0.5), Paint()..color = const Color(0xFFBBDEFB));
-      canvas.drawRect(Rect.fromLTWH(0, size.height * 0.5, size.width, size.height * 0.5), Paint()..color = const Color(0xFFA5D6A7));
-      canvas.drawCircle(Offset(size.width * 0.5, size.height * 0.6), 14.0, Paint()..color = const Color(0xFFFFB74D)); // golden dog
-    } else {
-      // Placeholder image icon
-      canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), Paint()..color = const Color(0xFFEEEEEE));
-      final iconPaint = Paint()
-        ..color = const Color(0xFF74777F)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.0;
-      canvas.drawRect(Rect.fromLTWH(18, 18, size.width - 36, size.height - 36), iconPaint);
-      canvas.drawCircle(Offset(size.width * 0.4, size.height * 0.4), 4.0, iconPaint);
+  Widget _buildThumbnail() {
+    final url = item.imageUrl;
+    if (url == null || url.isEmpty) {
+      return const Center(
+        child: Icon(Icons.image_outlined, color: AppColors.outline, size: 32.0),
+      );
     }
-  }
 
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+    // Backend stores images as base64 data URIs (see AddMemoryService),
+    // so decode those directly rather than trying to hit them as a network URL.
+    if (url.startsWith('data:image')) {
+      try {
+        final base64Part = url.substring(url.indexOf(',') + 1);
+        final bytes = base64Decode(base64Part);
+        return Image.memory(
+          Uint8List.fromList(bytes),
+          fit: BoxFit.cover,
+          errorBuilder: (ctx, err, stack) => const Center(
+            child: Icon(Icons.broken_image_outlined, color: AppColors.outline, size: 32.0),
+          ),
+        );
+      } catch (_) {
+        return const Center(
+          child: Icon(Icons.broken_image_outlined, color: AppColors.outline, size: 32.0),
+        );
+      }
+    }
+
+    if (url.startsWith('http')) {
+      return Image.network(
+        url,
+        fit: BoxFit.cover,
+        errorBuilder: (ctx, err, stack) => const Center(
+          child: Icon(Icons.broken_image_outlined, color: AppColors.outline, size: 32.0),
+        ),
+      );
+    }
+
+    return const Center(
+      child: Icon(Icons.image_outlined, color: AppColors.outline, size: 32.0),
+    );
+  }
 }

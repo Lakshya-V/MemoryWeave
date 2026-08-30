@@ -34,15 +34,22 @@ class MetricCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontFamily: 'Atkinson Hyperlegible Next',
-                  fontSize: 20.0,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.onSurfaceVariant,
+              // Expanded so a long title wraps/truncates gracefully instead
+              // of pushing into or overlapping the icon next to it.
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontFamily: 'Atkinson Hyperlegible Next',
+                    fontSize: 20.0,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.onSurfaceVariant,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
+              const SizedBox(width: 8.0),
               Icon(icon, color: AppColors.outline, size: 28.0),
             ],
           ),
@@ -50,14 +57,17 @@ class MetricCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
-                value,
-                style: const TextStyle(
-                  fontFamily: 'Atkinson Hyperlegible Next',
-                  fontSize: 44.0,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.primary,
-                  height: 1.0,
+              Flexible(
+                child: Text(
+                  value,
+                  style: const TextStyle(
+                    fontFamily: 'Atkinson Hyperlegible Next',
+                    fontSize: 44.0,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.primary,
+                    height: 1.0,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
               const SizedBox(width: 14.0),

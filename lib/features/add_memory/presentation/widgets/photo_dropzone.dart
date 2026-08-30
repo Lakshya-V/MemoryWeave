@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_dimensions.dart';
@@ -5,8 +6,11 @@ import '../../../../core/constants/app_strings.dart';
 
 class PhotoDropzone extends StatelessWidget {
   final VoidCallback onTap;
+  // Optional: once a photo is picked, pass it in here to show a preview
+  // instead of the dashed placeholder.
+  final File? imageFile;
 
-  const PhotoDropzone({super.key, required this.onTap});
+  const PhotoDropzone({super.key, required this.onTap, this.imageFile});
 
   @override
   Widget build(BuildContext context) {
@@ -19,44 +23,68 @@ class PhotoDropzone extends StatelessWidget {
           color: AppColors.surfaceContainerLowest,
           borderRadius: AppDimensions.roundedLarge,
         ),
-        child: CustomPaint(
-          painter: _DashedRectPainter(),
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(16.0),
-                  decoration: BoxDecoration(
-                    color: AppColors.primaryContainer,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppColors.borderBlack, width: AppDimensions.borderWidth),
-                  ),
-                  child: const Icon(
-                    Icons.add_a_photo,
-                    size: 40.0,
-                    color: AppColors.onPrimary,
-                  ),
-                ),
-                const SizedBox(height: 16.0),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 24.0),
-                  child: Text(
-                    AppStrings.tapToSelectPhoto,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontFamily: 'Atkinson Hyperlegible Next',
-                      fontSize: 24.0,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.onSurface,
-                      height: 1.25,
+        child: imageFile != null
+            ? ClipRRect(
+                borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Image.file(imageFile!, fit: BoxFit.cover),
+                    // Small overlay so it's still obvious you can tap to change it
+                    Positioned(
+                      right: 8,
+                      bottom: 8,
+                      child: Container(
+                        padding: const EdgeInsets.all(8.0),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryContainer,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: AppColors.borderBlack, width: AppDimensions.borderWidth),
+                        ),
+                        child: const Icon(Icons.edit, size: 20.0, color: AppColors.onPrimary),
+                      ),
                     ),
+                  ],
+                ),
+              )
+            : CustomPaint(
+                painter: _DashedRectPainter(),
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16.0),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryContainer,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: AppColors.borderBlack, width: AppDimensions.borderWidth),
+                        ),
+                        child: const Icon(
+                          Icons.add_a_photo,
+                          size: 40.0,
+                          color: AppColors.onPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 16.0),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 24.0),
+                        child: Text(
+                          AppStrings.tapToSelectPhoto,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: 'Atkinson Hyperlegible Next',
+                            fontSize: 24.0,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.onSurface,
+                            height: 1.25,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
-            ),
-          ),
-        ),
+              ),
       ),
     );
   }

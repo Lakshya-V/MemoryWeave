@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/constants/app_strings.dart';
@@ -17,33 +19,52 @@ class AddFamilyMemoryScreen extends StatefulWidget {
 
 class _AddFamilyMemoryScreenState extends State<AddFamilyMemoryScreen> {
   bool _isGenerating = false;
+  final ImagePicker _picker = ImagePicker();
 
-  // Replace this with your actual uploaded image URL or dynamic controller input
-  final String _sampleImageUrl = "https://example.com/family-photo.jpg"; //[cite: 1]
+  // The actual photo the caregiver picked from their gallery. Null until
+  // they tap the dropzone and choose one.
+  File? _pickedImage;
+
+  /// Opens the gallery. If a photo is picked, stores it and immediately
+  /// kicks off question generation. If the user backs out, does nothing.
+  Future<void> _pickPhotoAndGenerate() async {
+    if (_isGenerating) return;
+
+    final XFile? picked = await _picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 80,
+    );
+
+    if (picked == null) return; // user cancelled the picker
+
+    setState(() => _pickedImage = File(picked.path));
+
+    await _triggerGeneration();
+  }
 
   Future<void> _triggerGeneration() async {
-    if (_isGenerating) return;
+    if (_isGenerating || _pickedImage == null) return;
 
     setState(() => _isGenerating = true);
 
     try {
-      // 1. Call backend API to analyze image & get Reka AI questions[cite: 1]
-      final questions = await AddMemoryService.generateQuestions(_sampleImageUrl);
+      // AddMemoryService.generateQuestions already handles converting a
+      // local file path into a base64 data URL for the backend.
+      final questions =
+          await AddMemoryService.generateQuestions(_pickedImage!.path);
 
       if (!mounted) return;
 
       if (questions != null && questions.isNotEmpty) {
-        // 2. Navigate to Preview screen passing the fetched questions & image URL
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (context) => QuestionnairePreviewScreen(
-              imageUrl: _sampleImageUrl,
+              imageUrl: _pickedImage!.path,
               questions: questions,
             ),
           ),
         );
       } else {
-        // 3. Handle network error or empty response
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Failed to generate questions. Check API link or try again.'),
@@ -116,12 +137,13 @@ class _AddFamilyMemoryScreenState extends State<AddFamilyMemoryScreen> {
                   child: Column(
                     children: [
                       PhotoDropzone(
-  onTap: () {
-    if (!_isGenerating) {
-      _triggerGeneration();
-    }
-  },
-),
+                        imageFile: _pickedImage,
+                        onTap: () {
+                          if (!_isGenerating) {
+                            _pickPhotoAndGenerate();
+                          }
+                        },
+                      ),
                       const SizedBox(height: AppDimensions.stackGap),
 
                       // Context section with spinner
@@ -188,12 +210,16 @@ class _AddFamilyMemoryScreenState extends State<AddFamilyMemoryScreen> {
                     AccessibleButton.outlined(
                       text: AppStrings.addMorePhotos,
                       icon: Icons.add,
-                      onPressed: () {},
+                      onPressed: _isGenerating ? null : _pickPhotoAndGenerate,
                     ),
                     const SizedBox(height: 12.0),
                     AccessibleButton.primary(
                       text: _isGenerating ? "Generating..." : AppStrings.saveAndGenerate,
-                      onPressed: _isGenerating ? null : _triggerGeneration,
+                      // Disabled until a photo is actually picked, so this
+                      // can't fire against a null file.
+                      onPressed: (_isGenerating || _pickedImage == null)
+                          ? null
+                          : _triggerGeneration,
                     ),
                   ],
                 ),

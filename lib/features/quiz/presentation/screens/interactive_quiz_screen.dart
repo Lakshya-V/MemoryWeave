@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/constants/app_strings.dart';
@@ -27,7 +28,8 @@ class _InteractiveQuizScreenState extends State<InteractiveQuizScreen> {
   String _statusText = AppStrings.tapToSpeak;
 
   final Stopwatch _stopwatch = Stopwatch();
-  Timer? _recordingTimer;
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  String _liveTranscript = '';
 
   @override
   void initState() {
@@ -37,7 +39,7 @@ class _InteractiveQuizScreenState extends State<InteractiveQuizScreen> {
 
   @override
   void dispose() {
-    _recordingTimer?.cancel();
+    _speech.stop();
     _stopwatch.stop();
     super.dispose();
   }
@@ -75,30 +77,61 @@ class _InteractiveQuizScreenState extends State<InteractiveQuizScreen> {
     }
   }
 
-  void _handleMicTap() {
+  Future<void> _handleMicTap() async {
     if (_isLoading || _isEvaluating) return;
 
     if (!_isRecording) {
+      // Ask for mic permission / initialize the recognizer. Returns false
+      // if the user denies permission or the device has no speech service.
+      final available = await _speech.initialize(
+        onStatus: (status) {
+          // The plugin calls this when listening stops on its own
+          // (e.g. the user goes quiet) — treat that the same as a manual tap.
+          if (status == 'done' && mounted && _isRecording) {
+            _finishRecordingAndSubmit();
+          }
+        },
+        onError: (error) {
+          if (mounted) {
+            setState(() {
+              _isRecording = false;
+              _statusText = 'Could not hear you — try again';
+            });
+          }
+        },
+      );
+
+      if (!available) {
+        setState(() {
+          _statusText = 'Microphone unavailable. Check app permissions.';
+        });
+        return;
+      }
+
       setState(() {
         _isRecording = true;
+        _liveTranscript = '';
         _statusText = AppStrings.listening;
       });
 
-      _recordingTimer = Timer(const Duration(seconds: 4), () {
-        if (mounted && _isRecording) {
-          _finishRecordingAndSubmit();
-        }
-      });
+      _speech.listen(
+        onResult: (result) {
+          setState(() => _liveTranscript = result.recognizedWords);
+        },
+        listenFor: const Duration(seconds: 15),
+        pauseFor: const Duration(seconds: 3),
+      );
     } else {
-      _finishRecordingAndSubmit();
+      await _finishRecordingAndSubmit();
     }
   }
 
   Future<void> _finishRecordingAndSubmit() async {
-    _recordingTimer?.cancel();
+    await _speech.stop();
     _stopwatch.stop();
 
     final latencyMs = _stopwatch.elapsedMilliseconds;
+    final transcript = _liveTranscript.trim();
 
     setState(() {
       _isRecording = false;
@@ -106,12 +139,17 @@ class _InteractiveQuizScreenState extends State<InteractiveQuizScreen> {
       _statusText = AppStrings.processing;
     });
 
-    // Simulated speech transcription (Plug speech_to_text package transcript string here)
-    const simulatedTranscript = "That is my daughter Sarah at the beach";
+    if (transcript.isEmpty) {
+      setState(() {
+        _isEvaluating = false;
+        _statusText = "Didn't catch that — tap to try again";
+      });
+      return;
+    }
 
     final response = await QuizService.submitEvaluation(
       memoryId: _activeMemoryId ?? 'mem_a1b2c3',
-      transcribedText: simulatedTranscript,
+      transcribedText: transcript,
       latencyMs: latencyMs,
     );
 
