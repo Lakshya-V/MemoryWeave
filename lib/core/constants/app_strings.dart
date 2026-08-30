@@ -46,13 +46,13 @@ class AppStrings {
   static const String baselineComparison = '+3% vs baseline';
   static const String responsePaceInfo = 'Normal Response Pace';
   static const String responseTrendTitle = 'Response Time vs Accuracy Trend';
-  static const String cognitiveDriftAlert = 'Cognitive Drift Alert: +1.2s delay';
+  static const String cognitiveDriftAlert = 'Cognitive Drift: +1.2s delay';
   static const String personalBaseline = "Eleanor's Personal Baseline";
   static const String activeMemoryLibrary = 'Active Memory Library';
   static const String photoCount = '(12 Photos)';
   static const String showContext = 'Show Context';
   static const String loadMoreMemories = 'Load More Memories';
-  static const String addNewMemoryImages = '+ Add New Memory Images';
+  static const String addNewMemoryImages = '+ Add Memory Images';
 
   // Add Memory
   static const String addFamilyMemory = 'Add Family Memory';

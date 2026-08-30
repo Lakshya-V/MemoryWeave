@@ -109,6 +109,7 @@ class _PatientHomeScreenState extends State<PatientHomeScreen> {
                         border: Border.all(color: AppColors.borderBlack, width: 2.0),
                         borderRadius: BorderRadius.circular(8.0),
                         color: AppColors.surfaceContainerLow,
+                        
                       ),
                       child: Stack(
                         alignment: Alignment.center,
@@ -124,7 +125,7 @@ class _PatientHomeScreenState extends State<PatientHomeScreen> {
                               ),
                             ),
                           const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 14.0, vertical: 14.0),
+                            padding: EdgeInsets.symmetric(horizontal:16.0, vertical: 10.0),
                             child: Text(
                               'Caregiver',
                               style: TextStyle(
@@ -139,6 +140,7 @@ class _PatientHomeScreenState extends State<PatientHomeScreen> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 60.0),
                 ],
               ),
             ),

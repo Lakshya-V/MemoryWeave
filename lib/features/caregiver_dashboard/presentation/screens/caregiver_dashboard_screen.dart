@@ -338,31 +338,38 @@ class _CaregiverDashboardScreenState extends State<CaregiverDashboardScreen> {
                 ),
               ),
 
-              // Bottom Sticky Action Button
-              Container(
-                padding: const EdgeInsets.all(AppDimensions.containerMargin),
-                decoration: const BoxDecoration(
-                  color: AppColors.surface,
-                  border: Border(
-                    top: BorderSide(color: AppColors.borderBlack, width: AppDimensions.borderWidth),
+              // --- FIXED: Bottom Sticky Action Container ---
+              // Wrapped in SafeArea top:false to handle device bottom insets
+              // and adjusted horizontal/vertical padding.
+              SafeArea(
+                top: false,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppDimensions.containerMargin,
+                    vertical: 12.0,
                   ),
-                ),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 600.0),
-                    child: AccessibleButton.primary(
-                      text: AppStrings.addNewMemoryImages,
-                      icon: Icons.add_photo_alternate,
-                      onPressed: () async {
-                        await Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => const AddFamilyMemoryScreen(),
-                          ),
-                        );
-                        // Refresh the library after returning, in case a
-                        // new memory was just saved.
-                        _fetchAll();
-                      },
+                  decoration: const BoxDecoration(
+                    color: AppColors.surface,
+                    border: Border(
+                      top: BorderSide(color: AppColors.borderBlack, width: AppDimensions.borderWidth),
+                    ),
+                  ),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 600.0),
+                      child: AccessibleButton.primary(
+                        text: AppStrings.addNewMemoryImages,
+                        icon: Icons.add_photo_alternate,
+                        onPressed: () async {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (context) => const AddFamilyMemoryScreen(),
+                            ),
+                          );
+                          _fetchAll();
+                        },
+                      ),
                     ),
                   ),
                 ),

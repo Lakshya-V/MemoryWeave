@@ -73,9 +73,9 @@ class CognitiveTrendGraph extends StatelessWidget {
 
                 // Cognitive Drift Alert Badge
                 Positioned(
-                  top: 36.0,
+                  top: 20.0,
                   left: 16.0,
-                  right: 16.0,
+                
                   child: Center(
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 8.0),
