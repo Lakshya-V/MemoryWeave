@@ -1,29 +1,29 @@
 import os
 import json
 import uuid
+import base64
+import requests
 from typing import List
+
+import pandas as pd
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from openai import OpenAI
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
-from ml.anomaly import detect_drift
 
 from database import engine, Base, get_db
 import models
-import base64
-import requests
+from ml.anomaly import detect_drift, evaluate_behavioral_state, generate_explanation
 
 def to_base64_data_uri(image_input: str) -> str:
     """
     Converts a web URL or raw base64 string into a formatted Base64 Data URI.
     """
-    # 1. If Flutter already sent a formatted Base64 string, return as-is
     if image_input.startswith("data:image"):
         return image_input
 
-    # 2. If it's a web URL, fetch image bytes on your backend and encode them
     if image_input.startswith(("http://", "https://")):
         try:
             response = requests.get(image_input, timeout=5.0)
@@ -36,7 +36,6 @@ def to_base64_data_uri(image_input: str) -> str:
             print(f"FAILED TO FETCH/ENCODE IMAGE URL: {e}")
             raise HTTPException(status_code=400, detail="Could not retrieve image from provided URL.")
 
-    # 3. If raw base64 without prefix, append standard jpeg header
     return f"data:image/jpeg;base64,{image_input}"
 
 load_dotenv()
@@ -58,7 +57,7 @@ REKA_API_KEY = os.getenv("REKA_API_KEY", "your_reka_api_key_here")
 reka_client = OpenAI(
     base_url="https://api.reka.ai/v1",
     api_key=REKA_API_KEY,
-    timeout=12.0  # Fails fast & returns fallback before DevTunnel times out!
+    timeout=12.0
 )
 
 # --- Pydantic Data Schemas ---
@@ -81,21 +80,19 @@ class EvaluationRequest(BaseModel):
 
 # --- API Endpoints ---
 
-# Kept async def: Light weight, non-blocking simple dictionary return
 @app.get("/")
 async def root():
     return {"status": "online", "system": "MemoryWeave Core Engine"}
 
-# 1. Caregiver Step A: Reka inspects photo (CHANGED TO def -> offloads blocking Reka SDK call)
+# 1. Caregiver Step A: Exact Original Prompt (Full Image Quality)
 @app.post("/caregiver/generate-questions")
 def generate_caregiver_questions(req: CaregiverQuestionsRequest):
-    # Convert incoming URL or Base64 string to a Reka-compatible Data URI
     try:
         base64_image_uri = to_base64_data_uri(req.image_url)
     except HTTPException as http_err:
         raise http_err
     except Exception:
-        base64_image_uri = req.image_url  # Fallback to original string
+        base64_image_uri = req.image_url
 
     max_retries = 2
     for attempt in range(max_retries):
@@ -110,10 +107,43 @@ def generate_caregiver_questions(req: CaregiverQuestionsRequest):
                             {
                                 "type": "text",
                                 "text": (
-                                    "Look at this photo. Generate EXACTLY 3 short questions to ask the caregiver: "
-                                    "1 about the people in it, 1 about the location, and 1 about the event/year. "
-                                    "Return ONLY a valid JSON list of strings like: "
-                                    '["Who is with you in this photo?", "Where was this taken?", "What event was this?"]'
+                                    "Look at this image and generate EXACTLY 5 short, warm, playful and "
+                                    "conversation-starting prompts for an elderly person. The goal is to "
+                                    "make them WANT to interact, smile, recognize familiar things, and "
+                                    "share their own memories. The interaction should feel like a friendly "
+                                    "companion looking at a photo with them, NOT like a test, interview, "
+                                    "quiz, medical assessment, or interrogation.\n\n"
+
+                                    "Use visible people, their positions, and interesting objects as gentle "
+                                    "memory cues. If a person is visible on the left, right, or center, "
+                                    "invite recognition naturally, for example: 'Oh, do you happen to "
+                                    "recognize the lovely person on the left?' Do not invent their name or "
+                                    "relationship. If an interesting object is visible, use it to spark "
+                                    "curiosity. For example, for a wrapped gift: 'Ooh, I wonder if this "
+                                    "little gift brings back a memory... do you remember what was inside?' "
+                                    "For a cake: 'That cake looks special! Does it remind you of a happy "
+                                    "moment?' Do not assume it was a birthday. For a familiar-looking "
+                                    "place: 'This place looks interesting! Does it bring back any memories "
+                                    "for you?'\n\n"
+
+                                    "The elderly person should provide the meaning and backstory. NEVER "
+                                    "invent the backstory yourself. Never assume a wedding, birthday, "
+                                    "trip, family relationship, location, date, occasion, or event. Never "
+                                    "ask them to guess, infer, estimate, or prove anything. Never use "
+                                    "phrases such as 'Who is...', 'Where is...', 'What is...', 'What do "
+                                    "you think...', or 'Can you identify...' in a demanding or test-like way.\n\n"
+
+                                    "Prefer gentle conversational phrases such as 'Do you happen to "
+                                    "remember...', 'Does this bring back a memory...', 'This looks "
+                                    "familiar...', 'I wonder if...', 'Oh, look at...', 'Does this remind "
+                                    "you of...', and 'Would you like to tell me about...'. Keep the tone "
+                                    "respectful, affectionate, curious, and encouraging. Avoid childish "
+                                    "language, talking down to the person, excessive praise, or sounding "
+                                    "like a caregiver giving instructions.\n\n"
+
+                                    "Make each prompt easy to understand and enjoyable to respond to. "
+                                    "The image provides the CUE; the elderly person provides the STORY. "
+                                    "Return ONLY a valid JSON array containing exactly 5 strings, using double quotes."
                                 )
                             }
                         ]
@@ -125,22 +155,26 @@ def generate_caregiver_questions(req: CaregiverQuestionsRequest):
                 raw_out = raw_out.replace("```json", "").replace("```", "").strip()
                 
             questions = json.loads(raw_out)
-            return {"image_url": req.image_url, "questions": questions}
+            
+            if isinstance(questions, list) and len(questions) == 5:
+                return {"image_url": req.image_url, "questions": questions}
 
         except Exception as e:
             print(f"REKA VISION ATTEMPT {attempt + 1} FAILED: {e}")
 
-    # Fallback returned instantly if Reka times out or errors out
+    # Fallback aligned to 5 empathetic prompts
     return {
         "image_url": req.image_url,
         "questions": [
-            "Who are the people present in this photo?",
-            "Where was this photo taken?",
-            "What special memory or event is captured here?"
+            "Does the person in this photo bring back a warm memory?",
+            "Does this lovely setting look familiar to you?",
+            "Do you happen to remember the special moment captured here?",
+            "Look at this photo—does it bring a smile to your face?",
+            "Would you like to share what comes to mind looking at this?"
         ]
     }
 
-# 2. Caregiver Step B: Save answers (CHANGED TO def -> offloads synchronous SQLAlchemy)
+# 2. Caregiver Step B: Save answers
 @app.post("/caregiver/save-memory")
 def save_memory(req: SaveMemoryRequest, db: Session = Depends(get_db)):
     ground_truth_parts = [f"{pair.question}: {pair.answer}" for pair in req.qa_pairs]
@@ -160,27 +194,25 @@ def save_memory(req: SaveMemoryRequest, db: Session = Depends(get_db)):
     total_memories = db.query(models.Memory).count()
     return {"status": "success", "memory_id": new_memory.memory_id, "total_memories": total_memories}
 
-# 3. Elder Game: Serve next photo (CHANGED TO def -> offloads synchronous SQLAlchemy)
+# 3. Elder Game: Serve latest daily photo with all 5 questions
 @app.get("/activity/next")
 def get_next_activity(db: Session = Depends(get_db)):
-    memory = db.query(models.Memory).first()
+    memory = db.query(models.Memory).order_by(models.Memory.created_at.desc()).first()
     
     if not memory:
         raise HTTPException(status_code=404, detail="No memories available in database.")
 
-    selected_qa = memory.qa_pairs[0] if memory.qa_pairs else {
-        "question": "Do you remember who was with you in this photo?",
-        "answer": "Family"
-    }
+    questions = [qa["question"] for qa in memory.qa_pairs] if memory.qa_pairs else []
 
     return {
         "memory_id": memory.memory_id,
         "image_url": memory.image_url,
-        "question_text": selected_qa["question"],
+        "questions": questions,
+        "qa_pairs": memory.qa_pairs,
         "ground_truth": memory.ground_truth
     }
 
-# 4. Elder Game: Evaluate answer (CHANGED TO def -> offloads Reka SDK + SQLAlchemy + ML calls)
+# 4. Elder Game: Evaluate answer and record session log
 @app.post("/activity/evaluate")
 def evaluate_answer(req: EvaluationRequest, db: Session = Depends(get_db)):
     memory = db.query(models.Memory).filter(models.Memory.memory_id == req.memory_id).first()
@@ -200,12 +232,11 @@ def evaluate_answer(req: EvaluationRequest, db: Session = Depends(get_db)):
 
     SCORING RULES:
     - "direct_answer" (score 90-100): Correctly answers the specific question asked.
-    - "partial_context" (score 75-85): Mentioned ANY valid detail from ground truth (e.g., location or year instead of person). Grant partial credit!
-    - "incorrect" (score 0-40): Completely inaccurate or states they cannot remember.
-    - "feedback": 1 short, encouraging sentence (5-8 words) for an elderly person.
+    - "partial_context" (score 75-85): Mentioned ANY valid detail from ground truth.
+    - "incorrect" (score 0-40): Inaccurate or states they cannot remember.
+    - "feedback": 1 short encouraging sentence (5-8 words).
     """
 
-    # Step 1: Reka evaluates transcription
     try:
         response = reka_client.chat.completions.create(
             model="reka-edge",
@@ -225,19 +256,25 @@ def evaluate_answer(req: EvaluationRequest, db: Session = Depends(get_db)):
         match_type = "partial_context" if score >= 60 else "incorrect"
         feedback = "Thank you for sharing that with me!"
 
-    # Step 2: Feed score and latency into ML anomaly detector
-    try:
-        drift_result = detect_drift(
-            user_id="user_default",
-            latency_ms=float(req.latency_ms),
-            accuracy_score=float(score)
-        )
-        is_anomaly = drift_result.get("anomaly_flagged", False)
-    except Exception as e:
-        print(f"ML ANOMALY ERROR: {e}")
-        is_anomaly = False
+    drift_result = detect_drift(
+        user_id="user_default",
+        latency_ms=float(req.latency_ms),
+        accuracy_score=float(score)
+    )
+    is_anomaly = drift_result.get("anomaly_flagged", False)
 
-    # Step 3: Return integrated results
+    log_entry = models.ActivityLog(
+        user_id="user_default",
+        memory_id=req.memory_id,
+        transcribed_text=req.transcribed_text,
+        latency_ms=req.latency_ms,
+        accuracy_score=float(score),
+        match_type=match_type,
+        anomaly_flagged=is_anomaly
+    )
+    db.add(log_entry)
+    db.commit()
+
     return {
         "memory_id": req.memory_id,
         "accuracy_score": score,
@@ -246,4 +283,47 @@ def evaluate_answer(req: EvaluationRequest, db: Session = Depends(get_db)):
         "latency_ms": req.latency_ms,
         "feedback_text": feedback,
         "anomaly_flagged": is_anomaly
+    }
+
+# 5. Caregiver Dashboard: Longitudinal behavioral analysis using anomaly.py
+@app.get("/caregiver/dashboard")
+def get_caregiver_dashboard(user_id: str = "user_default", db: Session = Depends(get_db)):
+    logs = db.query(models.ActivityLog).filter(models.ActivityLog.user_id == user_id).all()
+
+    if not logs:
+        return {
+            "status": "insufficient_data",
+            "message": "No session history recorded yet.",
+            "state": "stable"
+        }
+
+    data = []
+    for log in logs:
+        data.append({
+            "accuracy": log.accuracy_score / 100.0,
+            "avg_response_latency": log.latency_ms / 1000.0,
+            "hint_rate": 0.0,
+            "completion_rate": 1.0,
+            "is_anomaly": 1 if log.anomaly_flagged else 0
+        })
+
+    df = pd.DataFrame(data)
+    trends = evaluate_behavioral_state(df)
+    latest_session = data[-1]
+    
+    baseline = {
+        "accuracy_mean": 0.80,
+        "avg_response_latency_mean": 5.0,
+        "hint_rate_mean": 0.15,
+        "completion_rate_mean": 0.90
+    }
+    
+    explanation = generate_explanation(latest_session, trends, baseline)
+
+    return {
+        "user_id": user_id,
+        "total_sessions": len(logs),
+        "behavioral_state": trends["state"],
+        "clinical_insight": explanation,
+        "trend_metrics": trends
     }

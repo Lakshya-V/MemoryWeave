@@ -3,9 +3,6 @@ import joblib
 import numpy as np
 import pandas as pd
 
-# ============================================================
-# DYNAMIC PATH RESOLUTION
-# ============================================================
 ML_DIR = os.path.dirname(os.path.abspath(__file__))
 
 MODEL_FILE = os.path.join(ML_DIR, "memoryweave_personalized_isolation_forest.pkl")
@@ -14,9 +11,6 @@ BASELINE_FILE = os.path.join(ML_DIR, "memoryweave_training_baselines.csv")
 
 TREND_WINDOW = 5
 
-# ============================================================
-# LOAD ARTIFACTS
-# ============================================================
 try:
     scaler = joblib.load(SCALER_FILE)
     model = joblib.load(MODEL_FILE)
@@ -33,9 +27,6 @@ DEFAULT_BASELINE = {
     "completion_rate_mean": 0.90, "completion_rate_std": 0.05
 }
 
-# ============================================================
-# LAYER 1: REAL-TIME SESSION ANOMALY DETECTION
-# ============================================================
 def detect_drift(
     user_id: str,
     latency_ms: float,
@@ -77,9 +68,6 @@ def detect_drift(
         "completion_z": round(float(comp_z), 2)
     }
 
-# ============================================================
-# LAYER 2: LONGITUDINAL BEHAVIORAL STATE ANALYSIS
-# ============================================================
 def calculate_slope(values):
     values = np.asarray(values, dtype=float)
     if len(values) < 2:
@@ -154,9 +142,6 @@ def evaluate_behavioral_state(recent_sessions_df: pd.DataFrame) -> dict:
         "recent_anomaly_count": anomaly_count
     }
 
-# ============================================================
-# LAYER 3: CAREGIVER EXPLANATION ENGINE
-# ============================================================
 def generate_explanation(latest_session: dict, trends: dict, baseline: dict) -> str:
     """
     Generates plain-language insights for the Caregiver Dashboard.
