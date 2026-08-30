@@ -80,32 +80,15 @@ async def root():
 def generate_caregiver_questions(req: CaregiverQuestionsRequest):
     formatted_image = format_image_for_llm(req.image_url)
 
-    prompt_text = """
-You are an exceptionally caring, gentle, and empathetic companion specializing in elderly reminiscence therapy.
+    prompt_text = """Look at this image and generate EXACTLY 5 short, warm, playful and conversation-starting prompts for an elderly person. The goal is to make them WANT to interact, smile, recognize familiar things, and share their own memories. The interaction should feel like a friendly companion looking at a photo with them, NOT like a test, interview, quiz, medical assessment, or interrogation.
 
-TASK:
-Examine the provided image carefully and create 5 warm, soothing, low-pressure memory prompts for an elderly user.
+Use visible people, their positions, and interesting objects as gentle memory cues. If a person is visible on the left, right, or center, invite recognition naturally, for example: 'Oh, do you happen to recognize the lovely person on the left?' Do not invent their name or relationship. If an interesting object is visible, use it to spark curiosity. For example, for a wrapped gift: 'Ooh, I wonder if this little gift brings back a memory... do you remember what was inside?' For a cake: 'That cake looks special! Does it remind you of a happy moment?' Do not assume it was a birthday. For a familiar-looking place: 'This place looks interesting! Does it bring back any memories for you?'
 
-STRICT VISUAL GROUNDING (TO PREVENT HALLUCINATIONS):
-1. ONLY reference people, objects, colors, or settings that are DEFINITELY and CLEARLY visible in the photo.
-2. NEVER guess or invent unseen objects (do NOT mention cakes, flowers, beaches, parties, or dates unless explicitly visible).
-3. If visual details are ambiguous, keep the prompt open-ended about general feelings or comfort.
+The elderly person should provide the meaning and backstory. NEVER invent the backstory yourself. Never assume a wedding, birthday, trip, family relationship, location, date, occasion, or event. Never ask them to guess, infer, estimate, or prove anything. Never use phrases such as 'Who is...', 'Where is...', 'What is...', 'What do you think...', or 'Can you identify...' in a demanding or test-like way.
 
-TONE & CARE GUIDELINES:
-- Make questions feel like a warm, soothing conversation—gentle, soft, and low-pressure.
-- Avoid test-like or interrogative phrasing.
+Prefer gentle conversational phrases such as 'Do you happen to remember...', 'Does this bring back a memory...', 'This looks familiar...', 'I wonder if...', 'Oh, look at...', 'Does this remind you of...', and 'Would you like to tell me about...'. Keep the tone respectful, affectionate, curious, and encouraging. Avoid childish language, talking down to the person, excessive praise, or sounding like a caregiver giving instructions.
 
-Output Format: Return STRICTLY valid JSON with no extra text or markdown codeblocks:
-{
-  "questions": [
-    "<Gentle, grounded question 1>",
-    "<Gentle, grounded question 2>",
-    "<Gentle, grounded question 3>",
-    "<Gentle, grounded question 4>",
-    "<Gentle, grounded question 5>"
-  ]
-}
-"""
+Make each prompt easy to understand and enjoyable to respond to. The image provides the CUE; the elderly person provides the STORY. Return ONLY a valid JSON array containing exactly 5 strings, using double quotes."""
 
     try:
         response = reka_client.chat.completions.create(
