@@ -54,7 +54,14 @@ def detect_drift(
     comp_z = (completion_rate - user_base["completion_rate_mean"]) / max(user_base["completion_rate_std"], 0.02)
 
     features = np.clip([[acc_z, lat_z, hint_z, comp_z]], -6, 6)
-    features_scaled = scaler.transform(features)
+
+    # Use original DataFrame column names to eliminate Scikit-Learn UserWarning
+    if hasattr(scaler, "feature_names_in_"):
+        features_df = pd.DataFrame(features, columns=scaler.feature_names_in_)
+    else:
+        features_df = pd.DataFrame(features, columns=["accuracy_z", "latency_z", "hint_z", "completion_z"])
+
+    features_scaled = scaler.transform(features_df)
     
     pred = model.predict(features_scaled)[0]
     anomaly_score = float(-model.decision_function(features_scaled)[0])
